@@ -1,0 +1,38 @@
+<?php
+
+namespace Database\Seeders;
+
+use App\Models\{{ model }};
+use Illuminate\Database\Seeder;
+
+class {{ class }} extends Seeder
+{
+    /**
+     * Run the database seeds.
+     */
+    public function run(): void
+    {
+        $data = [
+            [
+                'title' => 'Sample Title 1',
+                'description' => 'This is a sample description for the first item.',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'title' => 'Sample Title 2',
+                'description' => 'This is a sample description for the second item.',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'title' => 'Sample Title 3',
+                'description' => 'This is a sample description for the third item.',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ];
+
+        {{ model }}::insert($data);
+    }
+}

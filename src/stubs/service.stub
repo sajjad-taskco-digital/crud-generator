@@ -1,0 +1,59 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\{{ model }};
+use Illuminate\Database\Eloquent\Collection;
+
+class {{ class }}
+{
+    protected ${{ variable }};
+
+    public function __construct({{ model }} ${{ variable }})
+    {
+        $this->{{ variable }} = ${{ variable }};
+    }
+
+    /**
+     * Get all {{ variable }}s
+     */
+    public function getAll(): Collection
+    {
+        return $this->{{ variable }}->orderBy('created_at', 'desc')->get();
+    }
+
+    /**
+     * Get {{ variable }} by ID
+     */
+    public function getById(int $id): {{ model }}
+    {
+        return $this->{{ variable }}->findOrFail($id);
+    }
+
+    /**
+     * Create new {{ variable }}
+     */
+    public function create(array $data): {{ model }}
+    {
+        return $this->{{ variable }}->create($data);
+    }
+
+    /**
+     * Update {{ variable }}
+     */
+    public function update(int $id, array $data): {{ model }}
+    {
+        ${{ variable }} = $this->getById($id);
+        ${{ variable }}->update($data);
+        return ${{ variable }}->fresh();
+    }
+
+    /**
+     * Delete {{ variable }}
+     */
+    public function delete(int $id): bool
+    {
+        ${{ variable }} = $this->getById($id);
+        return ${{ variable }}->delete();
+    }
+}
