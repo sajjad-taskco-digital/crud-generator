@@ -1,127 +1,57 @@
 <?php
 
-namespace App\Http\Controllers\Api;
+namespace {{ namespace }};
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\{{ request }};
-use App\Services\{{ service }};
+use {{ requestNamespace }}\{{ request }};
+use {{ serviceNamespace }}\{{ service }};
+use {{ modelNamespace }}\{{ model }};
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class {{ class }} extends Controller
 {
-    protected ${{ variable }}Service;
+    protected $service;
 
-    public function __construct({{ service }} ${{ variable }}Service)
+    public function __construct({{ service }} $service)
     {
-        $this->{{ variable }}Service = ${{ variable }}Service;
+        $this->service = $service;
     }
 
-    /**
-     * Display a listing of {{ resource }}.
-     */
     public function index(): JsonResponse
     {
-        try {
-            ${{ variable }}s = $this->{{ variable }}Service->getAll();
-
-            return response()->json([
-                'success' => true,
-                'message' => '{{ class }}s retrieved successfully',
-                'data' => ${{ variable }}s
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve {{ resource }}',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+        return response()->json($this->service->list());
     }
 
-    /**
-     * Store a newly created {{ variable }} in storage.
-     */
     public function store({{ request }} $request): JsonResponse
     {
-        try {
-            ${{ variable }} = $this->{{ variable }}Service->create($request->validated());
-
-            return response()->json([
-                'success' => true,
-                'message' => '{{ class }} created successfully',
-                'data' => ${{ variable }}
-            ], 201);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to create {{ variable }}',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+        $created = $this->service->create($request->validated());
+        return response()->json($created, 201);
     }
 
-    /**
-     * Display the specified {{ variable }}.
-     */
-    public function show(int $id): JsonResponse
+    public function show($id): JsonResponse
     {
-        try {
-            ${{ variable }} = $this->{{ variable }}Service->getById($id);
-
-            return response()->json([
-                'success' => true,
-                'message' => '{{ class }} retrieved successfully',
-                'data' => ${{ variable }}
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => '{{ class }} not found',
-                'error' => $e->getMessage()
-            ], 404);
+        $found = $this->service->find($id);
+        if (! $found) {
+            return response()->json(['message' => '{{ model }} not found'], 404);
         }
+        return response()->json($found);
     }
 
-    /**
-     * Update the specified {{ variable }} in storage.
-     */
-    public function update({{ request }} $request, int $id): JsonResponse
+    public function update({{ request }} $request, $id): JsonResponse
     {
-        try {
-            ${{ variable }} = $this->{{ variable }}Service->update($id, $request->validated());
-
-            return response()->json([
-                'success' => true,
-                'message' => '{{ class }} updated successfully',
-                'data' => ${{ variable }}
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to update {{ variable }}',
-                'error' => $e->getMessage()
-            ], 500);
+        $updated = $this->service->update($id, $request->validated());
+        if (! $updated) {
+            return response()->json(['message' => '{{ model }} not found'], 404);
         }
+        return response()->json($updated);
     }
 
-    /**
-     * Remove the specified {{ variable }} from storage.
-     */
-    public function destroy(int $id): JsonResponse
+    public function destroy($id): JsonResponse
     {
-        try {
-            $this->{{ variable }}Service->delete($id);
-
-            return response()->json([
-                'success' => true,
-                'message' => '{{ class }} deleted successfully'
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to delete {{ variable }}',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+        $ok = $this->service->delete($id);
+        return $ok
+            ? response()->json(['message' => 'Deleted'])
+            : response()->json(['message' => '{{ model }} not found'], 404);
     }
 }

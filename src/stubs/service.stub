@@ -1,59 +1,38 @@
 <?php
 
-namespace App\Services;
+namespace {{ namespace }};
 
-use App\Models\{{ model }};
-use Illuminate\Database\Eloquent\Collection;
+use {{ modelNamespace }}\{{ model }};
 
 class {{ class }}
 {
-    protected ${{ variable }};
-
-    public function __construct({{ model }} ${{ variable }})
+    public function list()
     {
-        $this->{{ variable }} = ${{ variable }};
+        return {{ model }}::latest()->paginate();
     }
 
-    /**
-     * Get all {{ variable }}s
-     */
-    public function getAll(): Collection
-    {
-        return $this->{{ variable }}->orderBy('created_at', 'desc')->get();
-    }
-
-    /**
-     * Get {{ variable }} by ID
-     */
-    public function getById(int $id): {{ model }}
-    {
-        return $this->{{ variable }}->findOrFail($id);
-    }
-
-    /**
-     * Create new {{ variable }}
-     */
     public function create(array $data): {{ model }}
     {
-        return $this->{{ variable }}->create($data);
+        return {{ model }}::create($data);
     }
 
-    /**
-     * Update {{ variable }}
-     */
-    public function update(int $id, array $data): {{ model }}
+    public function find($id): ?{{ model }}
     {
-        ${{ variable }} = $this->getById($id);
-        ${{ variable }}->update($data);
-        return ${{ variable }}->fresh();
+        return {{ model }}::find($id);
     }
 
-    /**
-     * Delete {{ variable }}
-     */
-    public function delete(int $id): bool
+    public function update($id, array $data): ?{{ model }}
     {
-        ${{ variable }} = $this->getById($id);
-        return ${{ variable }}->delete();
+        $model = {{ model }}::find($id);
+        if (! $model) return null;
+
+        $model->update($data);
+        return $model;
+    }
+
+    public function delete($id): bool
+    {
+        $model = {{ model }}::find($id);
+        return $model ? (bool) $model->delete() : false;
     }
 }

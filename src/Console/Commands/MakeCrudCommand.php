@@ -8,150 +8,204 @@ use Illuminate\Support\Facades\File;
 
 class MakeCrudCommand extends Command
 {
-    protected $signature = 'make:crud {name} {--model=} {--force}';
-    protected $description = 'Generate API CRUD operations with all necessary files';
+    protected $signature = 'make:crud {name : Resource name. e.g. Blog or Admin/Blog}
+                                      {--model= : Optional explicit model class name}
+                                      {--force : Overwrite existing files}';
+
+    protected $description = 'Generate API CRUD (Model, Request, Service, Controller, Migration, Seeder)';
 
     public function handle()
     {
-        $name = $this->argument('name');
-        $modelName = $this->option('model') ?: $name;
+        $rawName = trim($this->argument('name'));
 
-        $this->info("🚀 Generating CRUD for: {$name}");
-        $this->info("📦 Model: {$modelName}");
+        // Accept both / and \ as separators
+        $parts = preg_split('#[\\/\\\\]+#', $rawName);
+        $parts = array_values(array_filter($parts, fn ($p) => $p !== ''));
 
-        try {
-            // Centralized file generation
-            $this->generateMigration($name);
-            $this->generateFile('model', app_path("Models/{$modelName}.php"), [
-                '{{ class }}' => Str::studly($modelName),
-                '{{ table }}' => Str::snake(Str::plural($modelName)),
-            ]);
-
-            $this->generateFile('controller', app_path("Http/Controllers/Api/".Str::studly($name)."Controller.php"), [
-                '{{ class }}'    => Str::studly($name).'Controller',
-                '{{ model }}'    => Str::studly($modelName),
-                '{{ service }}'  => Str::studly($name).'Service',
-                '{{ request }}'  => Str::studly($name).'Request',
-                '{{ variable }}' => Str::camel($name),
-                '{{ resource }}' => Str::plural(Str::lower($name)),
-            ]);
-
-            $this->generateFile('service', app_path("Services/".Str::studly($name)."Service.php"), [
-                '{{ class }}'    => Str::studly($name).'Service',
-                '{{ model }}'    => Str::studly($modelName),
-                '{{ variable }}' => Str::camel($name),
-            ]);
-
-            $this->generateFile('request', app_path("Http/Requests/".Str::studly($name)."Request.php"), [
-                '{{ class }}' => Str::studly($name).'Request',
-            ]);
-
-            $this->generateFile('seeder', database_path("seeders/".Str::studly($name)."Seeder.php"), [
-                '{{ class }}' => Str::studly($name).'Seeder',
-                '{{ model }}' => Str::studly($name),
-            ]);
-
-
-            $this->generateRoutes($name);
-
-            $this->successMessage($name);
-        } catch (\Exception $e) {
-            $this->error("❌ Error generating CRUD: " . $e->getMessage());
+        if (empty($parts)) {
+            $this->error('Invalid name.');
             return 1;
         }
+
+        $resourceClass = Str::studly(array_pop($parts)); // "Blog"
+        $foldersStudly = array_map(fn ($p) => Str::studly($p), $parts);
+
+        // Namespace suffix like "\Admin\Team"
+        $nsSuffix = $foldersStudly ? '\\' . implode('\\', $foldersStudly) : '';
+
+        // File path prefix like "Admin/Team/"
+        $pathPrefix = $foldersStudly ? implode('/', $foldersStudly) . '/' : '';
+
+        // Names and namespaces
+        $modelClass = $this->option('model')
+            ? Str::studly($this->option('model'))
+            : $resourceClass;
+
+        $names = [
+            'class'             => $resourceClass,                         // e.g. Blog
+            'variable'          => Str::camel($resourceClass),             // e.g. blog
+            'resource'          => Str::kebab(Str::plural($resourceClass)),// e.g. blogs
+            'table'             => Str::snake(Str::plural($modelClass)),   // e.g. blogs
+            'namespaceSuffix'   => $nsSuffix,                              // e.g. \Admin\Team
+            'pathPrefix'        => $pathPrefix,                            // e.g. Admin/Team/
+            'modelClass'        => $modelClass,                            // e.g. Blog or CustomModel
+        ];
+
+        // Destination namespaces
+        $namespaces = [
+            'model'      => 'App\\Models' . $nsSuffix,
+            'request'    => 'App\\Http\\Requests' . $nsSuffix,
+            'service'    => 'App\\Services' . $nsSuffix,
+            'controller' => 'App\\Http\\Controllers\\Api' . $nsSuffix,
+        ];
+
+        // Destination directories
+        $paths = [
+            'model'      => app_path('Models/' . $names['pathPrefix']),
+            'request'    => app_path('Http/Requests/' . $names['pathPrefix']),
+            'service'    => app_path('Services/' . $names['pathPrefix']),
+            'controller' => app_path('Http/Controllers/Api/' . $names['pathPrefix']),
+        ];
+        foreach ($paths as $dir) {
+            File::ensureDirectoryExists($dir);
+        }
+
+        // Generate files
+        $this->generateModel($paths['model'], $namespaces['model'], $names);
+        $this->generateRequest($paths['request'], $namespaces['request'], $names);
+        $this->generateService($paths['service'], $namespaces['service'], $names, $namespaces);
+        $this->generateController($paths['controller'], $namespaces['controller'], $names, $namespaces);
+        $this->generateMigration($names);
+        $this->generateSeeder($names, $namespaces);
+
+        // Helpful output
+        $this->line('');
+        $this->info('✅ CRUD generation completed!');
+        $this->line('');
+        $this->info('Next:');
+        $this->line('  php artisan migrate');
+        $this->line('  php artisan db:seed --class=' . $names['class'] . 'Seeder');
+        $this->line('');
+        $this->info('API endpoints:');
+        $this->line('  GET    /api/' . $names['resource']);
+        $this->line('  POST   /api/' . $names['resource']);
+        $this->line('  GET    /api/' . $names['resource'] . '/{id}');
+        $this->line('  PUT    /api/' . $names['resource'] . '/{id}');
+        $this->line('  DELETE /api/' . $names['resource'] . '/{id}');
 
         return 0;
     }
 
-    /**
-     * Generic generator for stubs
-     */
-    protected function generateFile(string $stubType, string $path, array $replacements)
+    protected function generateModel(string $dir, string $namespace, array $names): void
     {
-        $stub = $this->getStub($stubType);
-        $content = str_replace(array_keys($replacements), array_values($replacements), $stub);
+        $dest = $dir . $names['modelClass'] . '.php';
+        if ($this->skipIfExists($dest)) return;
 
-        $this->ensureDirectoryExists(dirname($path));
-
-        File::put($path, $content);
-        $this->info("📄 {$stubType} created: {$path}");
-    }
-
-    protected function generateMigration($name)
-    {
-        $tableName = Str::snake(Str::plural($name));
-        $className = 'Create' . Str::studly(Str::plural($name)) . 'Table';
-        $timestamp = date('Y_m_d_His');
-        $filename = "{$timestamp}_create_{$tableName}_table.php";
-
-        $this->generateFile('migration', "database/migrations/{$filename}", [
-            '{{ class }}' => $className,
-            '{{ table }}' => $tableName,
+        $this->putFromStub('model', $dest, [
+            '{{ namespace }}' => $namespace,
+            '{{ class }}'     => $names['modelClass'],
+            '{{ table }}'     => $names['table'],
         ]);
+        $this->info("Model: {$dest}");
     }
 
-    protected function generateRoutes($name)
+    protected function generateRequest(string $dir, string $namespace, array $names): void
     {
-        $routeName = Str::kebab(Str::plural($name));
-        $controllerName = Str::studly($name) . 'Controller';
+        $dest = $dir . $names['class'] . 'Request.php';
+        if ($this->skipIfExists($dest)) return;
 
-        $routes = "\n// {$name} CRUD Routes - Generated by TaskcoDigital CRUD Generator\n";
-        $routes .= "Route::apiResource('{$routeName}', App\\Http\\Controllers\\Api\\{$controllerName}::class);\n";
+        $this->putFromStub('request', $dest, [
+            '{{ namespace }}' => $namespace,
+            '{{ class }}'     => $names['class'] . 'Request',
+        ]);
+        $this->info("Request: {$dest}");
+    }
 
-        $apiRoutesPath = base_path('routes/api.php');
+    protected function generateService(string $dir, string $namespace, array $names, array $namespaces): void
+    {
+        $dest = $dir . $names['class'] . 'Service.php';
+        if ($this->skipIfExists($dest)) return;
 
-        if (!File::exists($apiRoutesPath)) {
-            $this->warn("⚠️ routes/api.php not found. Running 'php artisan install:api'...");
-            $this->call('install:api');
+        $this->putFromStub('service', $dest, [
+            '{{ namespace }}'        => $namespace,
+            '{{ class }}'            => $names['class'] . 'Service',
+            '{{ modelNamespace }}'   => $namespaces['model'],
+            '{{ model }}'            => $names['modelClass'],
+            '{{ variable }}'         => $names['variable'],
+        ]);
+        $this->info("Service: {$dest}");
+    }
+
+    protected function generateController(string $dir, string $namespace, array $names, array $namespaces): void
+    {
+        $dest = $dir . $names['class'] . 'Controller.php';
+        if ($this->skipIfExists($dest)) return;
+
+        $this->putFromStub('controller', $dest, [
+            '{{ namespace }}'         => $namespace,
+            '{{ class }}'             => $names['class'] . 'Controller',
+            '{{ requestNamespace }}'  => $namespaces['request'],
+            '{{ request }}'           => $names['class'] . 'Request',
+            '{{ serviceNamespace }}'  => $namespaces['service'],
+            '{{ service }}'           => $names['class'] . 'Service',
+            '{{ modelNamespace }}'    => $namespaces['model'],
+            '{{ model }}'             => $names['modelClass'],
+            '{{ variable }}'          => $names['variable'],
+            '{{ resource }}'          => $names['resource'],
+        ]);
+        $this->info("Controller: {$dest}");
+    }
+
+    protected function generateMigration(array $names): void
+    {
+        $timestamp = date('Y_m_d_His');
+        $file = database_path("migrations/{$timestamp}_create_{$names['table']}_table.php");
+
+        // avoid duplicate migration for the same table (simple check)
+        $dir = database_path('migrations');
+        foreach (glob($dir . '/*_create_' . $names['table'] . '_table.php') as $existing) {
+            $file = $existing;
+            break;
         }
 
-        if (File::exists($apiRoutesPath)) {
-            $currentRoutes = File::get($apiRoutesPath);
-            if (!str_contains($currentRoutes, "apiResource('{$routeName}'")) {
-                File::append($apiRoutesPath, $routes);
-                $this->info("📄 Routes added to api.php");
-            } else {
-                $this->warn("⚠️ Route for '{$routeName}' already exists.");
-            }
-        } else {
-            $this->error("❌ routes/api.php still not found. Please create it manually.");
+        $this->putFromStub('migration', $file, [
+            '{{ table }}' => $names['table'],
+        ], true);
+
+        $this->info("Migration: {$file}");
+    }
+
+    protected function generateSeeder(array $names, array $namespaces): void
+    {
+        $dir = database_path('seeders');
+        File::ensureDirectoryExists($dir);
+
+        $file = $dir . '/' . $names['class'] . 'Seeder.php';
+        if ($this->skipIfExists($file)) return;
+
+        $this->putFromStub('seeder', $file, [
+            '{{ class }}'          => $names['class'] . 'Seeder',
+            '{{ modelNamespace }}' => $namespaces['model'],
+            '{{ model }}'          => $names['modelClass'],
+        ]);
+        $this->info("Seeder: {$file}");
+    }
+
+    protected function skipIfExists(string $path): bool
+    {
+        if (File::exists($path) && ! $this->option('force')) {
+            $this->warn("Exists (skip): {$path} (use --force to overwrite)");
+            return true;
         }
+        File::ensureDirectoryExists(dirname($path));
+        return false;
     }
 
-    protected function getStub($type)
+    protected function putFromStub(string $stubName, string $dest, array $replacements, bool $force = false): void
     {
-        $stubPath = base_path("stubs/crud-generator/{$type}.stub");
-        if (File::exists($stubPath)) return File::get($stubPath);
-
-        $packageStubPath = __DIR__ . "/../../stubs/{$type}.stub";
-        if (File::exists($packageStubPath)) return File::get($packageStubPath);
-
-        return $this->getDefaultStub($type);
-    }
-
-    protected function ensureDirectoryExists($directory)
-    {
-        if (!File::exists($directory)) {
-            File::makeDirectory($directory, 0755, true);
-        }
-    }
-
-    protected function successMessage($name)
-    {
-        $routeName = Str::kebab(Str::plural($name));
-
-        $this->info('');
-        $this->info('✅ CRUD generation completed successfully!');
-        $this->info('');
-        $this->info('📝 Next steps:');
-        $this->info('   1. Run: php artisan migrate');
-        $this->info('   2. Optionally run: php artisan db:seed --class=' . Str::studly($name) . 'Seeder');
-        $this->info('');
-        $this->info('🎯 API Endpoints available at:');
-        $this->info("   GET    /api/{$routeName}");
-        $this->info("   POST   /api/{$routeName}");
-        $this->info("   GET    /api/{$routeName}/{id}");
-        $this->info("   PUT    /api/{$routeName}/{id}");
-        $this->info("   DELETE /api/{$routeName}/{id}");
+        $stub = __DIR__ . '/../../stubs/' . $stubName . '.stub';
+        $content = File::get($stub);
+        $content = str_replace(array_keys($replacements), array_values($replacements), $content);
+        File::put($dest, $content);
     }
 }
